@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+	<title>Pixel Quest — Плитки и Кубы</title>
+	<style>
+		:root {
+			--bg: #0f0f13;
+			--paper: #f4e4bc;
+			--accent: #826a5c;
+			--ui: #1e1e26;
+			--floor: #2b2f3a;
+			--wall: #151821;
+			--plate: #7d8fa3;
+			--door: #b59b86;
+			--box: #caa574;
+		}
+
+		html, body { height: 100%; }
+		body {
+			margin: 0;
+			background: var(--bg);
+			color: #fff;
+			font-family: "Press Start 2P", ui-monospace, Menlo, Monaco, Consolas, monospace;
+			display: flex;
+			flex-direction: column;
+		}
+
+		.header {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			padding: 12px 16px;
+			background: linear-gradient(180deg, rgba(0,0,0,0.45), rgba(0,0,0,0));
+			z-index: 2;
+		}
+		.header .title { font-size: 14px; letter-spacing: 1px; color: var(--paper); }
+		.header .level { font-size: 12px; opacity: .8; }
+
+		.game {
+			flex: 1;
+			display: grid;
+			place-items: center;
+			position: relative;
+			overflow: hidden;
+		}
+
+		canvas { 
+			image-rendering: pixelated; 
+			image-rendering: crisp-edges;
+			background: #10131a;
+			border: 3px solid #000;
+			box-shadow: 0 10px 40px rgba(0,0,0,.55), inset 0 0 0 3px rgba(255,255,255,0.03);
+			border-radius: 10px;
+		}
+
+		/* Themed animated backgrounds */
+		.bg-layer { position: absolute; inset: 0; pointer-events: none; }
+		.bg-stars { background: radial-gradient(ellipse at center, rgba(255,255,255,0.05), transparent 60%); }
+		.star { position: absolute; width: 2px; height: 2px; background: #fff; opacity: .8; animation: twinkle 2.5s infinite ease-in-out; }
+		@keyframes twinkle { 0%,100%{opacity:.2} 50%{opacity:1} }
+
+		.rain { position:absolute; inset:0; background: repeating-linear-gradient(120deg, rgba(255,255,255,0.05) 0 2px, transparent 2px 10px); filter: blur(0.4px); animation: rain 1.2s linear infinite; }
+		@keyframes rain { to { background-position: 0 20px; } }
+
+		.bubbles { position:absolute; inset:0; overflow:hidden; }
+		.bubble { position:absolute; bottom:-10px; width:6px; height:6px; background: rgba(180,220,255,.8); border-radius:50%; animation: rise 6s linear infinite; filter: blur(0.3px); }
+		@keyframes rise { to { transform: translateY(-110vh) translateX(-10px); opacity:.1 } }
+
+		.duck { position:absolute; top: 20%; left:-40px; width: 32px; height: 18px; background: #f7e38a; border:2px solid #3b2d16; border-radius: 6px; animation: fly 9s linear infinite; }
+		.duck::after { content:''; position:absolute; right:-6px; top:4px; width: 8px; height: 6px; background:#f0c94c; border:2px solid #3b2d16; border-radius:2px; }
+		@keyframes fly { to { left: calc(100% + 40px); transform: translateY(0px) } }
+
+		.rainbow { position:absolute; inset:0; background: linear-gradient(120deg, #ff6ec4, #7873f5, #4ade80, #fbbf24, #f87171); background-size: 300% 300%; opacity:.08; animation: shift 10s ease-in-out infinite; }
+		@keyframes shift { 0%,100%{background-position:0 0} 50%{background-position:100% 100%} }
+
+		.toast { position: fixed; left: 50%; top: 16px; transform: translateX(-50%); background: rgba(0,0,0,0.75); color: #fff; padding: 10px 14px; border-radius: 10px; font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.3); opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s; z-index: 5; }
+		.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+		/* On-screen controls */
+		.controls { position: absolute; inset: 0; pointer-events: none; }
+		.joystick { position: absolute; left: 18px; bottom: 18px; width: 120px; height: 120px; pointer-events: auto; }
+		.j-base { width: 100%; height: 100%; background: rgba(255,255,255,0.06); border: 2px solid rgba(255,255,255,.15); border-radius: 50%; position: relative; }
+		.j-stick { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; background: rgba(255,255,255,0.25); border: 2px solid rgba(255,255,255,.35); border-radius: 50%; transform: translate(-50%,-50%); }
+		.btn-action { position: absolute; right: 22px; bottom: 42px; width: 70px; height: 70px; border-radius: 50%; background: var(--accent); color:#fff; display:grid; place-items:center; font-size: 12px; pointer-events:auto; box-shadow: 0 8px 20px rgba(0,0,0,.35); border:2px solid rgba(255,255,255,.2) }
+		.btn-action:active { transform: scale(0.96); }
+
+		/* Victory modal */
+		.modal { position: fixed; inset: 0; background: rgba(0,0,0,.7); display:none; align-items:center; justify-content:center; z-index:10; }
+		.modal .card { background: var(--paper); color: #222; border-radius: 14px; padding: 22px; width: min(92vw, 420px); text-align:center; box-shadow: 0 12px 40px rgba(0,0,0,.4); }
+		.modal .card h2 { color: var(--accent); margin: 0 0 10px; }
+		.modal .card p { margin: 0 0 18px; }
+		.modal .card a { display:inline-block; background: var(--accent); color:#fff; padding: 10px 16px; border-radius: 10px; text-decoration:none; box-shadow: 0 6px 18px rgba(0,0,0,.25) }
+
+		/* Onboarding overlay */
+		.onboard { position: fixed; inset: 0; background: rgba(0,0,0,.72); display:flex; align-items:center; justify-content:center; z-index:11; }
+		.onboard .sheet { background: var(--paper); color:#222; width: min(95vw, 560px); border-radius: 16px; padding: 24px 20px; box-shadow: 0 16px 48px rgba(0,0,0,.5); transform-origin: center; transition: transform .25s ease, opacity .25s ease; }
+		.onboard .title { margin:0 0 10px; color: var(--accent); text-align:center; }
+		.onboard .legend { display:flex; gap:12px; align-items:center; justify-content:center; margin: 12px 0 4px; }
+		.legend .swatch { width:18px; height:18px; border-radius: 4px; border:2px solid #333; }
+		.onboard .tip { margin: 6px 0; font-size: 12px; line-height: 1.6; }
+		.onboard.hide .sheet { transform: scale(.85); opacity: 0; }
+		.game.blur { filter: blur(4px); }
+
+		/* Responsive Design */
+		/* Small phones */
+		@media (max-width: 360px) {
+			.header .title { font-size: 12px; }
+			.header .level { font-size: 10px; }
+			.joystick { 
+				left: 10px;
+				bottom: 10px;
+				width: 100px;
+				height: 100px;
+			}
+			.btn-action {
+				right: 12px;
+				bottom: 32px;
+				width: 60px;
+				height: 60px;
+				font-size: 10px;
+			}
+			canvas {
+				width: 95vw;
+				height: auto;
+			}
+		}
+
+		/* Medium phones */
+		@media (min-width: 361px) and (max-width: 480px) {
+			canvas {
+				width: 95vw;
+				height: auto;
+			}
+			.joystick {
+				left: 12px;
+				bottom: 12px;
+				width: 110px;
+				height: 110px;
+			}
+		}
+
+		/* Tablets */
+		@media (min-width: 481px) and (max-width: 768px) {
+			canvas {
+				width: 90vw;
+				height: auto;
+			}
+			.joystick {
+				left: 20px;
+				bottom: 20px;
+			}
+		}
+
+		/* Landscape mode */
+		@media (max-height: 500px) and (orientation: landscape) {
+			.header {
+				padding: 8px 12px;
+			}
+			.joystick {
+				width: 90px;
+				height: 90px;
+				left: 10px;
+				bottom: 10px;
+			}
+			.btn-action {
+				width: 55px;
+				height: 55px;
+				right: 15px;
+				bottom: 25px;
+			}
+			canvas {
+				height: 85vh;
+				width: auto;
+			}
+		}
+
+		/* Desktop and large screens */
+		@media (min-width: 1024px) {
+			.header {
+				padding: 16px 24px;
+			}
+			.header .title { font-size: 16px; }
+			canvas {
+				max-width: 80vw;
+				max-height: 80vh;
+			}
+			.controls {
+				opacity: 0.8;
+				transition: opacity 0.3s;
+			}
+			.controls:hover {
+				opacity: 1;
+			}
+		}
+
+		/* High DPI screens */
+		@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+			canvas {
+				image-rendering: auto;
+			}
+		}
+
+		/* Reduced motion preference */
+		@media (prefers-reduced-motion: reduce) {
+			.star, .rain, .bubble, .duck, .rainbow {
+				animation: none;
+			}
+		}
+
+		/* Dark mode support */
+		@media (prefers-color-scheme: dark) {
+			:root {
+				--bg: #0a0a0d;
+				--ui: #16161c;
+			}
+		}
+	</style>
+</head>
+<body>
+	<div class="header">
+		<div class="title">PIXEL QUEST</div>
+		<div class="level" id="levelLabel">Уровень 1 / 5</div>
+	</div>
+	<div class="game">
+		<div class="bg-layer" id="bgLayer"></div>
+		<canvas id="game" width="512" height="384"></canvas>
+		<div class="controls">
+			<div class="joystick" id="joystick">
+				<div class="j-base" id="jBase">
+					<div class="j-stick" id="jStick"></div>
+				</div>
+			</div>
+			<button class="btn-action" id="btnAction">ВЗЯТЬ</button>
+		</div>
+	</div>
+	<div class="toast" id="toast"></div>
+	<div class="modal" id="winModal">
+		<div class="card">
+			<h2>Поздравляем!</h2>
+			<p>Вы прошли все уровни Pixel Quest!</p>
+			<a href="#" id="winNext">На главный</a>
+		</div>
+	</div>
+
+	<!-- Onboarding overlay -->
+	<div class="onboard" id="onboard">
+		<div class="sheet" id="onboardCard">
+			<h3 class="title">Как играть</h3>
+			<p class="tip">1) Возьмите куб (кнопка «ВЗЯТЬ» или пробел), подойдя к нему вплотную.</p>
+			<p class="tip">2) Поставьте кубы на <b>плиты</b>, чтобы открыть <b>дверь</b>.</p>
+			<div class="legend">
+				<div class="swatch" style="background:#7d8fa3"></div><span style="font-size:12px">Плита</span>
+				<div class="swatch" style="background:#b59b86"></div><span style="font-size:12px">Дверь (закрыта)</span>
+				<div class="swatch" style="background:#2b875f"></div><span style="font-size:12px">Дверь (открыта)</span>
+			</div>
+			<p class="tip">3) Когда все плиты заняты — дверь загорится зелёным. Зайдите в дверь, чтобы перейти на следующий уровень.</p>
+			<p class="tip" style="opacity:.8">Управление: WASD, джойстик — для телефонов.</p>
+			<p class="tip" style="margin-top:14px; opacity:.7">Нажмите вне этого окна, чтобы начать</p>
+		</div>
+	</div>
+
+	<script>
+	(function(){
+		const canvas = document.getElementById('game');
+		const ctx = canvas.getContext('2d');
+		ctx.imageSmoothingEnabled = false;
+
+		// Final redirect URL (replace placeholder)
+		const FINAL_URL = 'ВСТАВЬТЕ_ССЫЛКУ_ФИНАЛА';
+
+		const levelLabel = document.getElementById('levelLabel');
+		const bgLayer = document.getElementById('bgLayer');
+		const toastEl = document.getElementById('toast');
+		const winModal = document.getElementById('winModal');
+		const winNext = document.getElementById('winNext');
+		const btnAction = document.getElementById('btnAction');
+
+		// WORLD SCALE
+		const TILE = 16; // logical pixels
+		const SCALE = 2; // render scale
+		const RTILE = TILE * SCALE;
+		const WIDTH = canvas.width / RTILE; // logical tiles
+		const HEIGHT = canvas.height / RTILE;
+
+		// INPUT
+		let keyState = { up:false, down:false, left:false, right:false };
+		let wantAction = false;
+
+		// ENTITIES
+		let player = { x: 2, y: 2, facing:'down', carrying:false };
+		let boxes = [];
+		let plates = [];
+		let door = { x: 0, y: 0, open: false };
+		let walls = new Set();
+		let levelIndex = 0;
+		let paused = true; // pause until onboarding closed
+		// Sprite storage
+		let playerSprites = { up:[], down:[], left:[], right:[] };
+		let playerCarrySprites = { up:[], down:[], left:[], right:[] };
+
+		// LEVELS
+		const levels = [
+			// 1 Gloom + rain
+			{ theme:'gloom',
+				map:[
+					"################",
+					"#..P.....#....#",
+					"#..##....#....#",
+					"#....B........#",
+					"#....##....D..#",
+					"#.............#",
+					"#..##....##...#",
+					"#..#......#...#",
+					"#..#..B...#...#",
+					"################"
+				]
+			},
+			// 2 Rainbow
+			{ theme:'rainbow',
+				map:[
+					"################",
+					"#..P.........D.#",
+					"#..####........#",
+					"#......B.......#",
+					"#......####....#",
+					"#...........B..#",
+					"#..####........#",
+					"#..............#",
+					"#..............#",
+					"################"
+				]
+			},
+			// 3 Underwater
+			{ theme:'underwater',
+				map:[
+					"################",
+					"#P.........#..D#",
+					"#....###...#...#",
+					"#....#....B#...#",
+					"#....#..#..#...#",
+					"#..B.#..#..#...#",
+					"#....#..#..#...#",
+					"#....####..#...#",
+					"#..............#",
+					"################"
+				]
+			},
+			// 4 Earth/duck
+			{ theme:'earth',
+				map:[
+					"################",
+					"#....P.........#",
+					"#..#######.....#",
+					"#..#.....B.....#",
+					"#..#.....#.....#",
+					"#..#.....#..D..#",
+					"#..#..B..#.....#",
+					"#..#.....#.....#",
+					"#..#######.....#",
+					"################"
+				]
+			},
+			// 5 Space
+			{ theme:'space',
+				map:[
+					"################",
+					"#P...#.........#",
+					"#....#..B......#",
+					"#....#.........#",
+					"#....#######...#",
+					"#..............#",
+					"#..B........D..#",
+					"#..............#",
+					"#..............#",
+					"################"
+				]
+			}
+		];
+
+		function toast(msg){
+			toastEl.textContent = msg;
+			toastEl.classList.add('show');
+			setTimeout(()=>toastEl.classList.remove('show'), 1300);
+		}
+
+		function themeBackground(theme){
+			bgLayer.innerHTML = '';
+			if(theme==='gloom') {
+				const rain = document.createElement('div'); rain.className='rain'; bgLayer.appendChild(rain);
+			}
+			if(theme==='rainbow') { const rb = document.createElement('div'); rb.className='rainbow'; bgLayer.appendChild(rb); }
+			if(theme==='underwater') {
+				const bub = document.createElement('div'); bub.className='bubbles';
+				for(let i=0;i<22;i++){ const b=document.createElement('div'); b.className='bubble'; b.style.left=Math.random()*100+'%'; b.style.animationDuration=(4+Math.random()*4)+'s'; bub.appendChild(b);} bgLayer.appendChild(bub);
+			}
+			if(theme==='earth') { const duck=document.createElement('div'); duck.className='duck'; bgLayer.appendChild(duck); }
+			if(theme==='space') { const stars=document.createElement('div'); stars.className='bg-layer bg-stars'; for(let i=0;i<60;i++){ const s=document.createElement('div'); s.className='star'; s.style.left=Math.random()*100+'%'; s.style.top=Math.random()*100+'%'; s.style.animationDelay=(Math.random()*2)+'s'; stars.appendChild(s);} bgLayer.appendChild(stars); }
+		}
+
+		function loadLevel(i){
+			levelIndex = i;
+			levelLabel.textContent = `Уровень ${i+1} / ${levels.length}`;
+			walls.clear(); boxes.length=0; plates.length=0; door={x:0,y:0,open:false};
+			const L = levels[i];
+			themeBackground(L.theme);
+			buildPlayerSprites(getThemeColor('player'));
+			for(let y=0;y<L.map.length;y++){
+				for(let x=0;x<L.map[y].length;x++){
+					const ch = L.map[y][x];
+					if(ch==='#') walls.add(x+','+y);
+					if(ch==='P') { plates.push({x,y}); }
+					if(ch==='B') { boxes.push({x,y}); }
+					if(ch==='D') { door.x=x; door.y=y; }
+					if(ch==='.' && !player.spawned){ /* noop */ }
+					if(ch==='.' && false){}
+					if(ch==='P' || ch==='B' || ch==='D' || ch==='#'){} else if(ch==='.' && false){}
+					if(ch==='P' || ch==='B' || ch==='D' || ch==='#' || ch==='.'){} else if(ch){ /* place player on first non-wall floor */ }
+				}
+			}
+			// find player start: first '.' on map or near top-left
+			let found=false;
+			for(let y=0;y<L.map.length && !found;y++){
+				for(let x=0;x<L.map[y].length && !found;x++){
+					if(L.map[y][x]==='.' ) { player.x=x; player.y=y; found=true; }
+				}
+			}
+			if(!found){ player.x=2; player.y=2; }
+			player.carrying=false;
+			// Increase difficulty: ensure at least 2-4 plates and >= plates boxes
+			augmentDifficulty();
+		}
+
+		function emptyAt(x,y){ return !walls.has(x+","+y) && !(door.x===x && door.y===y) && !boxAt(x,y) && !plateAt(x,y) && x>0 && y>0 && x<WIDTH-1 && y<HEIGHT-1; }
+		function randInt(a,b){ return (Math.random()* (b-a+1) | 0) + a; }
+		function augmentDifficulty(){
+			// aim for platesTarget based on level
+			const platesTarget = Math.min(4, 2 + Math.floor(levelIndex*0.6));
+			while(plates.length < platesTarget){
+				const x = randInt(1, WIDTH-2), y = randInt(1, HEIGHT-2);
+				if(emptyAt(x,y)) plates.push({x,y});
+			}
+			const boxesTarget = Math.max(plates.length, plates.length + 1); // 1 extra box
+			while(boxes.length < boxesTarget){
+				const x = randInt(1, WIDTH-2), y = randInt(1, HEIGHT-2);
+				if(emptyAt(x,y)) boxes.push({x,y});
+			}
+			checkPlates();
+		}
+
+		function isBlocked(x,y){ return x<0||y<0||x>=WIDTH||y>=HEIGHT || walls.has(x+","+y) || boxAt(x,y); }
+		function boxAt(x,y){ return boxes.find(b=>b.x===x && b.y===y); }
+		function plateAt(x,y){ return plates.find(p=>p.x===x && p.y===y); }
+
+		function checkPlates(){
+			// door opens if every plate has a box on it
+			door.open = plates.length>0 && plates.every(p=> boxAt(p.x,p.y));
+		}
+
+		let moving=false; let moveAnim=0; let fromX=0, fromY=0, toX=0, toY=0;
+		function tryMove(dx,dy){
+			if(moving) return;
+			const nx = player.x+dx, ny = player.y+dy;
+			player.facing = Math.abs(dx)>Math.abs(dy) ? (dx>0?'right':'left') : (dy>0?'down':'up');
+			if(isBlocked(nx,ny)) return;
+			moving=true; moveAnim=0; fromX=player.x; fromY=player.y; toX=nx; toY=ny;
+			const dur=120; const start=performance.now();
+			function step(t){
+				moveAnim = Math.min(1,(t-start)/dur);
+				draw();
+				if(moveAnim<1) requestAnimationFrame(step); else { player.x=nx; player.y=ny; moving=false; afterStep(); }
+			}
+			requestAnimationFrame(step);
+		}
+		function afterStep(){
+			// if stepped onto open door -> next level
+			if(door.open && player.x===door.x && player.y===door.y){
+				if(levelIndex<levels.length-1){ loadLevel(levelIndex+1); toast('Следующий уровень!'); }
+				else { paused = true; winModal.style.display='flex'; }
+			}
+		}
+
+		function action(){
+			// pick/drop box with Space/Action
+			if(player.carrying){
+				// drop in front or current tile if free
+				const dir = player.facing;
+				let dx=0,dy=0; if(dir==='up')dy=-1; if(dir==='down')dy=1; if(dir==='left')dx=-1; if(dir==='right')dx=1;
+				const tx = player.x+dx, ty = player.y+dy;
+				if(!isBlocked(tx,ty)){
+					boxes.push({x:tx,y:ty});
+					player.carrying=false;
+					checkPlates();
+					toast( plateAt(tx,ty)? 'Куб установлен на плиту!' : 'Куб поставлен' );
+				}
+				return;
+			}
+			// not carrying: try pickup adjacent box
+			const adj = [ [0,-1], [0,1], [-1,0], [1,0] ];
+			for(const [dx,dy] of adj){
+				const b = boxAt(player.x+dx, player.y+dy);
+				if(b){
+					// pick up
+					boxes = boxes.filter(x=>x!==b);
+					player.carrying=true; toast('Куб взят');
+					checkPlates();
+					return;
+				}
+			}
+			toast('Рядом нет куба');
+		}
+
+		// RENDER
+		function rect(x,y,w,h,c){ ctx.fillStyle=c; ctx.fillRect(x,y,w,h); }
+		function drawTile(x,y){
+			// floor
+			rect(x*RTILE, y*RTILE, RTILE, RTILE, '#1a1e27');
+			// subtle grid
+			ctx.fillStyle = 'rgba(255,255,255,.02)';
+			ctx.fillRect(x*RTILE, y*RTILE, RTILE, 1);
+			ctx.fillRect(x*RTILE, y*RTILE, 1, RTILE);
+			if(walls.has(x+","+y)){
+				// wall block with inner fill and outline
+				const wx = x*RTILE, wy = y*RTILE;
+				rect(wx, wy, RTILE, RTILE, getThemeColor('wall'));
+				// inner light vignette
+				ctx.fillStyle = 'rgba(255,255,255,0.03)';
+				ctx.fillRect(wx+3, wy+3, RTILE-6, RTILE-6);
+				// outline
+				ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+				ctx.lineWidth = 2;
+				ctx.strokeRect(wx+1, wy+1, RTILE-2, RTILE-2);
+				// top shadow strip
+				rect(wx, wy, RTILE, 4, 'rgba(0,0,0,.28)');
+				return;
+			}
+			const p = plateAt(x,y);
+			if(p) {
+				rect(x*RTILE+3, y*RTILE+3, RTILE-6, RTILE-6, getThemeColor('plate'));
+			}
+			if(door.x===x && door.y===y){
+				if(door.open){ rect(x*RTILE+2,y*RTILE+2,RTILE-4,RTILE-4, '#2b875f'); }
+				else { rect(x*RTILE+2,y*RTILE+2,RTILE-4,RTILE-4, getThemeColor('door')); }
+			}
+		}
+		function drawBox(b){
+			rect(b.x*RTILE+2, b.y*RTILE+2, RTILE-4, RTILE-4, getThemeColor('box'));
+			// rim
+			rect(b.x*RTILE+2, b.y*RTILE+2, RTILE-4, 3, 'rgba(0,0,0,.2)');
+		}
+		function drawPlayer(){
+			const px = (moving? (fromX + (toX-fromX)*ease(moveAnim)) : player.x) * RTILE;
+			const py = (moving? (fromY + (toY-fromY)*ease(moveAnim)) : player.y) * RTILE;
+			// choose frame
+			const dir = player.facing;
+			let frame = 0;
+			if(moving){ frame = (moveAnim < 0.5) ? 0 : 1; }
+			else { frame = (Math.floor(performance.now()/220) % 2); }
+			const sprites = player.carrying ? playerCarrySprites : playerSprites;
+			const img = (sprites[dir] && sprites[dir][frame]) ? sprites[dir][frame] : null;
+			// carrying cube bob animation
+			const bob = player.carrying ? Math.sin(performance.now()/120) * 2 : 0;
+			if(player.carrying && dir==='up'){
+				// draw cube first (behind body for up)
+				rect(px+3, py+2 + bob, RTILE-6, RTILE-6, getThemeColor('box'));
+			}
+			if(img){ ctx.drawImage(img, px, py, RTILE, RTILE); }
+			else {
+				// fallback simple rect
+				rect(px+4, py+4, RTILE-8, RTILE-6, '#d7c6b1');
+				rect(px+4, py+10, RTILE-8, RTILE-12, getThemeColor('player'));
+			}
+			if(player.carrying && dir!=='up'){
+				// in-front for down/left/right
+				rect(px+3, py+4 - bob, RTILE-6, RTILE-6, getThemeColor('box'));
+			}
+		}
+		function ease(t){ return t<.5 ? 2*t*t : -1+(4-2*t)*t; }
+
+		function draw(){
+			// clear
+			rect(0,0, canvas.width, canvas.height, '#0f1219');
+			// tiles
+			for(let y=0;y<HEIGHT;y++) for(let x=0;x<WIDTH;x++) drawTile(x,y);
+			// boxes
+			for(const b of boxes) drawBox(b);
+			// player
+			drawPlayer();
+		}
+
+		function getThemeColor(kind){
+			const t = levels[levelIndex].theme;
+			if(kind==='wall') return (t==='rainbow') ? '#734f3b' : (t==='underwater'? '#144b66' : (t==='earth'? '#39412c' : (t==='space'? '#1b1f2b' : '#1a1e27')));
+			if(kind==='plate') return (t==='underwater'? '#6bb3c7' : '#7d8fa3');
+			if(kind==='door') return (t==='underwater'? '#8dcad8' : '#b59b86');
+			if(kind==='box') return (t==='rainbow'? '#e4b36d' : '#caa574');
+			if(kind==='player') return (t==='underwater'? '#2d6a7a' : (t==='earth'? '#6a8a4a' : (t==='rainbow'? '#8b5cf6' : '#826a5c')));
+			return '#ffffff';
+		}
+
+		function buildPlayerSprites(tunicColor){
+			playerSprites = { up:[], down:[], left:[], right:[] };
+			playerCarrySprites = { up:[], down:[], left:[], right:[] };
+			const make = (dir, frame, carrying=false)=>{
+				const c = document.createElement('canvas'); c.width=TILE; c.height=TILE; const g=c.getContext('2d'); g.imageSmoothingEnabled=false;
+				// helper
+				const p = (x,y,w,h,col)=>{ g.fillStyle=col; g.fillRect(x,y,w,h); };
+				// draw using a base direction so left can mirror right-assets
+				const baseDir = (dir==='left') ? 'right' : dir;
+				// base body
+				p(5,3,6,5,'#d7c6b1'); // head
+				// eyes by baseDir (before possible mirror)
+				if(baseDir==='down'){ p(6,5,1,1,'#000'); p(9,5,1,1,'#000'); }
+				if(baseDir==='up'){ /* eyes hidden from back */ }
+				if(baseDir==='left'){ p(6,5,1,1,'#000'); }
+				if(baseDir==='right'){ p(9,5,1,1,'#000'); }
+				// torso
+				p(4,8,8,6,tunicColor);
+				// arms: different pose if carrying
+				if(!carrying){
+					p(3,8,2,3,tunicColor); p(11,8,2,3,tunicColor);
+				}else{
+					// lifted arms toward center
+					p(4,7,2,4,tunicColor); p(10,7,2,4,tunicColor);
+				}
+				// legs walk frames
+				if(frame===0){ p(5,14,2,2,'#3a2f28'); p(9,14,2,2,'#3a2f28'); }
+				else { p(4,14,2,2,'#3a2f28'); p(10,14,2,2,'#3a2f28'); }
+				// simple shadow under
+				g.globalAlpha=.12; p(3,15,10,1,'#000'); g.globalAlpha=1;
+				// if requesting left, mirror the right-facing base
+				if(dir==='left'){
+					const m = document.createElement('canvas'); m.width=TILE; m.height=TILE; const mg=m.getContext('2d');
+					mg.translate(TILE,0); mg.scale(-1,1); mg.drawImage(c,0,0); return m;
+				}
+				return c;
+			};
+			playerSprites.down = [ make('down',0,false), make('down',1,false) ];
+			playerSprites.up   = [ make('up',0,false),   make('up',1,false)   ];
+			playerSprites.left = [ make('left',0,false), make('left',1,false) ];
+			playerSprites.right= [ make('right',0,false),make('right',1,false) ];
+			playerCarrySprites.down = [ make('down',0,true), make('down',1,true) ];
+			playerCarrySprites.up   = [ make('up',0,true),   make('up',1,true)   ];
+			playerCarrySprites.left = [ make('left',0,true), make('left',1,true) ];
+			playerCarrySprites.right= [ make('right',0,true),make('right',1,true) ];
+		}
+
+		// INPUT handling
+		document.addEventListener('keydown', (e)=>{
+			switch(e.code){
+				case 'KeyW': keyState.up=true; e.preventDefault(); break;
+				case 'KeyS': keyState.down=true; e.preventDefault(); break;
+				case 'KeyA': keyState.left=true; e.preventDefault(); break;
+				case 'KeyD': keyState.right=true; e.preventDefault(); break;
+				case 'Space': wantAction=true; e.preventDefault(); break;
+			}
+		});
+		document.addEventListener('keyup', (e)=>{
+			switch(e.code){
+				case 'KeyW': keyState.up=false; break;
+				case 'KeyS': keyState.down=false; break;
+				case 'KeyA': keyState.left=false; break;
+				case 'KeyD': keyState.right=false; break;
+				case 'Space': /* noop */ break;
+			}
+		});
+		btnAction.addEventListener('click', ()=>{ action(); });
+
+		// mobile joystick
+		const jBase = document.getElementById('jBase');
+		const jStick = document.getElementById('jStick');
+		let jActive=false; let jCenter={x:0,y:0};
+		function joyStart(e){ jActive=true; const r=jBase.getBoundingClientRect(); jCenter={x:r.left+r.width/2, y:r.top+r.height/2}; }
+		function joyMove(e){ if(!jActive) return; const t=(e.touches?e.touches[0]:e); const dx=t.clientX-jCenter.x; const dy=t.clientY-jCenter.y; const len=Math.min(40, Math.hypot(dx,dy)); const ang=Math.atan2(dy,dx); const sx=Math.cos(ang)*len, sy=Math.sin(ang)*len; jStick.style.transform=`translate(calc(-50% + ${sx}px), calc(-50% + ${sy}px))`; keyState={up:false,down:false,left:false,right:false}; if(len>12){ const ax=Math.abs(dx), ay=Math.abs(dy); if(ax>ay){ if(dx>0) keyState.right=true; else keyState.left=true; } else { if(dy>0) keyState.down=true; else keyState.up=true; } } }
+		function joyEnd(){ jActive=false; jStick.style.transform='translate(-50%,-50%)'; keyState={up:false,down:false,left:false,right:false}; }
+		jBase.addEventListener('touchstart', joyStart); jBase.addEventListener('touchmove', joyMove); jBase.addEventListener('touchend', joyEnd); jBase.addEventListener('touchcancel', joyEnd);
+		// Mouse support for desktop testing
+		jBase.addEventListener('mousedown', (e)=>{ e.preventDefault(); joyStart(e); });
+		document.addEventListener('mousemove', joyMove);
+		document.addEventListener('mouseup', joyEnd);
+
+		// GAME LOOP (input poll)
+		let lastTick=0; const STEP=140; // ms per tile
+		function loop(t){
+			if(!paused && !moving && t-lastTick>STEP){
+				if(keyState.up) { tryMove(0,-1); lastTick=t; }
+				else if(keyState.down) { tryMove(0,1); lastTick=t; }
+				else if(keyState.left) { tryMove(-1,0); lastTick=t; }
+				else if(keyState.right) { tryMove(1,0); lastTick=t; }
+				if(wantAction){ action(); wantAction=false; lastTick=t; }
+			}
+			draw();
+			requestAnimationFrame(loop);
+		}
+
+		// INIT MAP to logical size ( WIDTHxHEIGHT derived from canvas )
+		function fitMapToCanvas(){
+			// Ensure level maps fit the logical canvas size; crop or pad with walls
+			for(const L of levels){
+				const rows = L.map.length;
+				for(let y=0;y<rows;y++){
+					let row=L.map[y];
+					if(row.length>WIDTH) L.map[y]=row.slice(0,WIDTH);
+					else if(row.length<WIDTH) L.map[y]=row + '#'.repeat(WIDTH-row.length);
+				}
+				if(rows>HEIGHT) L.map=L.map.slice(0,HEIGHT);
+				else if(rows<HEIGHT){ while(L.map.length<HEIGHT) L.map.push('#'.repeat(WIDTH)); }
+			}
+		}
+
+		fitMapToCanvas();
+		loadLevel(0);
+		draw();
+		// blur game while onboarding
+		document.querySelector('.game').classList.add('blur');
+		requestAnimationFrame(loop);
+
+		winNext.addEventListener('click', (e)=>{ e.preventDefault(); winModal.style.display='none'; location.href=FINAL_URL; });
+
+		// Onboarding dismiss (click outside card)
+		const onboard = document.getElementById('onboard');
+		const onboardCard = document.getElementById('onboardCard');
+		onboard.addEventListener('click', (e)=>{
+			if(e.target === onboard){
+				onboard.classList.add('hide');
+				setTimeout(()=>{ onboard.style.display='none'; document.querySelector('.game').classList.remove('blur'); paused=false; }, 220);
+			}
+		});
+	})();
+	</script>
+</body>
+</html>
